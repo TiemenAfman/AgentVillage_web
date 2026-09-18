@@ -312,6 +312,7 @@ export function createWorld(scene, terrain, village, opts = {}) {
         uDeep: { value: new THREE.Color(0x215e78) },
         uShallow: { value: new THREE.Color(0x65c4b5) },
         uFoam: { value: new THREE.Color(0xeaf6f8) },
+        uPatchHalf: { value: wSpan * 0.5 },
         uSunDir: { value: new THREE.Vector3(0, 1, 0) },
         uSunColor: { value: new THREE.Color(0xffffff) },
         uNight: { value: 0 },
@@ -324,6 +325,7 @@ export function createWorld(scene, terrain, village, opts = {}) {
       varying float vDepth;
       varying vec3 vWorld;
       varying vec3 vWave;
+      varying float vPatchEdge;
       void main() {
         vDepth = aDepth;
         vec3 p = position;
@@ -331,6 +333,7 @@ export function createWorld(scene, terrain, village, opts = {}) {
         float w2 = sin(p.z * 1.7 - uTime * 0.9);
         p.y += 0.05 * w1 + 0.04 * w2;
         vWave = vec3(-0.065 * cos(p.x * 1.3 + uTime * 1.1), 1.0, -0.068 * cos(p.z * 1.7 - uTime * 0.9));
+        vPatchEdge = max(abs(p.x), abs(p.z));
         vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
         vWorld = (modelMatrix * vec4(p, 1.0)).xyz;
         gl_Position = projectionMatrix * mvPosition;
@@ -341,10 +344,11 @@ export function createWorld(scene, terrain, village, opts = {}) {
       #include <fog_pars_fragment>
       uniform vec3 uDeep, uShallow, uFoam, uSunColor;
       uniform vec3 uSunDir;
-      uniform float uTime, uNight;
+      uniform float uTime, uNight, uPatchHalf;
       varying float vDepth;
       varying vec3 vWorld;
       varying vec3 vWave;
+      varying float vPatchEdge;
       void main() {
         float shallow = smoothstep(-2.0, -0.1, vDepth);
         vec3 col = mix(uDeep, uShallow, shallow);
@@ -370,7 +374,13 @@ export function createWorld(scene, terrain, village, opts = {}) {
         float spec = pow(max(dot(r, v), 0.0), 60.0);
         col += uSunColor * spec * 0.55 * (1.0 - uNight * 0.8);
         col *= mix(1.0, 0.34, uNight);
-        gl_FragColor = vec4(col, 0.88);
+        // This detailed sheet lies over the open-ocean disc. Fade it out while there is
+        // still plenty of water between it and the island, otherwise its square edge is
+        // visible whenever its denser waves and translucent colour differ from the disc.
+        // The ocean uses this shader too, but is opaque, so its alpha is intentionally
+        // ignored and the two surfaces meet without a line or a hole.
+        float patchFade = smoothstep(0.0, 24.0, uPatchHalf - vPatchEdge);
+        gl_FragColor = vec4(col, 0.88 * patchFade);
         #include <fog_fragment>
       }
     `,
